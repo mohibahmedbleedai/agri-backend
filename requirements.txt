@@ -2,5 +2,11 @@ fastapi
 uvicorn
 pillow
 torch
-opencv-python-headless
+opencv-python
 numpy
+huggingface
+transformers
+python-multipart
+pandas
+soundfile
+meteomatics
