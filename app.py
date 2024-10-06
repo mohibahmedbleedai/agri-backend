@@ -2,6 +2,7 @@ import datetime
 import io
 import pathlib
 import sys
+from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
@@ -9,7 +10,7 @@ import requests
 import soundfile as sf
 import torch
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from PIL import Image
 from transformers import AutoTokenizer, VitsModel
@@ -99,9 +100,9 @@ def number_to_urdu(n):
 
 
 def get_phytophthora_insights():
-    today = datetime.utcnow()
-    start_date = today - datetime.timedelta(days=10)
-    end_date = today + datetime.timedelta(days=10)
+    today = datetime.now(timezone.utc)
+    start_date = today - timedelta(days=10)
+    end_date = today + timedelta(days=10)
 
     print(f"Fetching Phytophthora Negative Prognosis data from {start_date.date()} to {end_date.date()}...\n")
 
@@ -225,6 +226,45 @@ async def text_to_audio(request: Request):
 
         return StreamingResponse(
             buffer, media_type="audio/wav", headers={"Content-Disposition": "attachment; filename=output.wav"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio generation failed: {e}")
+
+
+@app.get("/insights_audio", summary="Get Phytophthora insights as audio")
+async def insights_audio():
+    """
+    Fetches Phytophthora insights and returns the audio version.
+
+    Returns:
+        StreamingResponse: The generated audio file in WAV format.
+    """
+    insights = get_phytophthora_insights()
+
+    if "خرابی" in insights or "درست ڈیٹا" in insights:
+        raise HTTPException(status_code=500, detail=insights)
+
+    if tts_model is None or tts_tokenizer is None:
+        raise HTTPException(status_code=500, detail="TTS model is not loaded.")
+
+    try:
+        # Tokenize the insights text
+        inputs = tts_tokenizer(insights, return_tensors="pt")
+
+        with torch.no_grad():
+            # Generate the waveform
+            output = tts_model(**inputs).waveform
+
+        # Squeeze to remove batch dimension and convert to numpy
+        waveform = output.squeeze().cpu().numpy()
+
+        # Write the waveform to a bytes buffer as WAV
+        buffer = io.BytesIO()
+        sf.write(buffer, waveform, samplerate=22050, format="WAV")
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer, media_type="audio/wav", headers={"Content-Disposition": "attachment; filename=insights.wav"}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Audio generation failed: {e}")
